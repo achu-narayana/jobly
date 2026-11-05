@@ -14,12 +14,13 @@ const KIND_COLOR: Record<NodeKind, string> = {
   you: "#ffffff",
   skill: "#e6e6e6",
   job: "#b3b3b3",
+  startup: "#f5f5f5",
   company: "#8a8a8a",
   location: "#666666",
   source: "#4a4a4a",
   custom: "#ffffff",
 };
-const KIND_LABEL: Record<NodeKind, string> = { you: "You", skill: "Skill", job: "Job", company: "Company", location: "Place", source: "Source", custom: "Custom" };
+const KIND_LABEL: Record<NodeKind, string> = { you: "You", skill: "Skill", job: "Job", startup: "Startup", company: "Company", location: "Place", source: "Source", custom: "Custom" };
 const KINDS = Object.keys(KIND_COLOR) as NodeKind[];
 
 /** The force engine swaps link endpoints from ids to node objects once it runs. */
@@ -60,6 +61,7 @@ export function GraphView() {
   const loadGraph = useStore((s) => s.loadGraph);
   const setView = useStore((s) => s.setView);
   const selectLead = useStore((s) => s.selectLead);
+  const selectStartup = useStore((s) => s.selectStartup);
   const setLeadStatus = useStore((s) => s.setLeadStatus);
 
   const fg = useRef<ForceGraphMethods<N, L> | undefined>(undefined);
@@ -161,12 +163,12 @@ export function GraphView() {
         roughness: 0.35,
       });
       group.add(new THREE.Mesh(new THREE.SphereGeometry(r, 18, 18), mat));
-      if (n.kind === "you" || isSel) {
+      if (n.kind === "you" || isSel || n.meta?.outreach === "replied") {
         const ring = new THREE.Mesh(new THREE.TorusGeometry(r + 2.2, 0.35, 8, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6 }));
         ring.rotation.x = Math.PI / 2;
         group.add(ring);
       }
-      const show = labels === "all" || (labels === "smart" && (n.kind === "you" || n.kind === "company" || n.weight >= 0.55 || isSel || (selected ? neighbours.has(n.id) : false)));
+      const show = labels === "all" || (labels === "smart" && (n.kind === "you" || n.kind === "company" || n.kind === "startup" || n.weight >= 0.55 || isSel || (selected ? neighbours.has(n.id) : false)));
       if (show && !dim) {
         const s = labelSprite(n.label.length > 28 ? n.label.slice(0, 27) + "…" : n.label, color, 8 + n.weight * 4);
         s.position.y = r + 7;
@@ -302,6 +304,7 @@ export function GraphView() {
               onUnlink={(other) => void edit({ op: "removeLink", source: selectedNode.id, target: other }).then(() => edit({ op: "removeLink", source: other, target: selectedNode.id }))}
               onLink={(other) => void edit({ op: "addLink", link: { source: selectedNode.id, target: other, kind: "custom", weight: 0.5 } })}
               onOpenLead={(leadId) => { selectLead(leadId); setView("leads"); }}
+              onOpenStartup={(id) => { selectStartup(id); setView("startups"); }}
               onStatus={(leadId, status) => void setLeadStatus(leadId, status).then(loadGraph)}
             />
           </motion.aside>
@@ -333,7 +336,7 @@ function AddNode({ onAdd }: { onAdd: (label: string, kind: NodeKind) => void }) 
           >
             <input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder="label" className="h-8 rounded-lg border border-line-2 bg-bg px-2 text-sm outline-none focus:border-accent" />
             <div className="flex flex-wrap gap-1">
-              {(["custom", "skill", "company", "location", "job"] as NodeKind[]).map((k) => (
+              {(["custom", "skill", "company", "startup", "location", "job"] as NodeKind[]).map((k) => (
                 <Chip key={k} active={kind === k} onClick={() => setKind(k)}>
                   {KIND_LABEL[k]}
                 </Chip>
@@ -362,6 +365,7 @@ function Inspector(props: {
   onUnlink: (otherId: string) => void;
   onLink: (otherId: string) => void;
   onOpenLead: (leadId: string) => void;
+  onOpenStartup: (startupId: string) => void;
   onStatus: (leadId: string, s: LeadStatus) => void;
 }) {
   const { node } = props;
@@ -385,7 +389,7 @@ function Inspector(props: {
     ? props.allNodes.filter((n) => n.id !== node.id && n.label.toLowerCase().includes(linkQ.toLowerCase()) && !connections.some((c) => c.other.id === n.id)).slice(0, 5)
     : [];
 
-  const meta = (node.meta ?? {}) as { leadId?: string; score?: number; status?: LeadStatus; url?: string; company?: string; category?: string; gap?: boolean; headline?: string };
+  const meta = (node.meta ?? {}) as { leadId?: string; startupId?: string; outreach?: string | null; round?: string | null; amount?: string | null; hiring?: boolean; score?: number; status?: LeadStatus; url?: string; company?: string; category?: string; gap?: boolean; headline?: string };
 
   return (
     <>
@@ -409,6 +413,14 @@ function Inspector(props: {
         {meta.headline && <p className="px-1 text-xs text-fg-3">{meta.headline}</p>}
         {meta.company && <p className="px-1 text-sm text-fg-2">{meta.company}</p>}
         {meta.category && <p className="px-1 text-xs text-fg-3">{meta.category}</p>}
+        {meta.startupId && (
+          <div className="mt-2 space-y-2 px-1 text-xs text-fg-2">
+            <p>{[meta.round, meta.amount].filter(Boolean).join(" · ") || "funded"}{meta.hiring ? " · hiring" : ""}{meta.outreach ? ` · email ${meta.outreach}` : ""}</p>
+            <Button size="sm" variant="primary" className="w-full" onClick={() => props.onOpenStartup(meta.startupId!)}>
+              open startup
+            </Button>
+          </div>
+        )}
 
         {meta.leadId && (
           <div className="mt-3 flex flex-wrap gap-1.5">

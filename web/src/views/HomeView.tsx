@@ -16,15 +16,17 @@ function Counter({ value, suffix = "" }: { value: number; suffix?: string }) {
 
 const STEPS = [
   { n: "01", title: "Drop your resume", body: "Parsed on your machine. Skills, titles and places are pulled out and weighted by how much you lean on them." },
-  { n: "02", title: "Scan the open web", body: "Live job postings are scraped from LinkedIn, RemoteOK and V2EX. No accounts, no API keys, nothing leaves your laptop except the search." },
-  { n: "03", title: "See how it connects", body: "Every lead, company, skill and city becomes a node in a 3D graph you can drag, rename, link and prune." },
+  { n: "02", title: "Scan jobs and fresh funding", body: "Pick Hyderabad, Bangalore, Remote or anywhere else. Live postings come from LinkedIn and RemoteOK; startups that just raised money come from the news, with their careers page and contact emails." },
+  { n: "03", title: "Reach out, then watch the replies", body: "A cold email is drafted from your resume and their round, sent from your own mailbox, and tracked until they answer. Everything lands in one 3D graph you can edit." },
 ];
 
 export function HomeView() {
   const setView = useStore((s) => s.setView);
   const profile = useStore((s) => s.profile);
   const leads = useStore((s) => s.leads);
-  const graph = useStore((s) => s.graph);
+  const startups = useStore((s) => s.startups);
+  const outreach = useStore((s) => s.outreach);
+  const replies = outreach.filter((o) => o.status === "replied").length;
   const avg = leads.length ? Math.round(leads.reduce((a, l) => a + l.match.score, 0) / leads.length) : 0;
   const strong = leads.filter((l) => l.match.score >= 70).length;
 
@@ -49,27 +51,31 @@ export function HomeView() {
             Upload once. Jobly scrapes live postings, scores each one against what you actually know, and draws the whole thing as a graph you can edit.
           </motion.p>
           <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.42 }} className="mt-9 flex flex-wrap gap-3">
-            <Button variant="primary" size="lg" onClick={() => setView(profile ? "leads" : "resume")}>
-              {profile ? "Scan for leads" : "Upload resume"}
+            <Button variant="primary" size="lg" onClick={() => setView(profile ? "startups" : "resume")}>
+              {profile ? "Find funded startups" : "Upload resume"}
               <span aria-hidden>→</span>
             </Button>
-            <Button size="lg" onClick={() => setView("graph")}>
-              Open the graph
+            <Button size="lg" onClick={() => setView(profile ? "leads" : "graph")}>
+              {profile ? "Scan jobs" : "Open the graph"}
             </Button>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }} className="mt-14 grid max-w-md grid-cols-3 gap-6 border-t border-line pt-6">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }} className="mt-14 grid max-w-lg grid-cols-2 gap-6 border-t border-line pt-6 sm:grid-cols-4">
             <div>
               <Counter value={leads.length} />
-              <p className="mt-1 text-xs text-fg-3">leads found</p>
+              <p className="mt-1 text-xs text-fg-3">jobs found</p>
+            </div>
+            <div>
+              <Counter value={startups.length} />
+              <p className="mt-1 text-xs text-fg-3">funded startups</p>
+            </div>
+            <div>
+              <Counter value={replies} />
+              <p className="mt-1 text-xs text-fg-3">replies</p>
             </div>
             <div>
               <Counter value={avg} suffix="%" />
-              <p className="mt-1 text-xs text-fg-3">average match</p>
-            </div>
-            <div>
-              <Counter value={graph?.nodes.length ?? 0} />
-              <p className="mt-1 text-xs text-fg-3">graph nodes</p>
+              <p className="mt-1 text-xs text-fg-3">avg match</p>
             </div>
           </motion.div>
         </div>

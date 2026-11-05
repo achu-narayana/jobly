@@ -21,7 +21,7 @@ export async function extractText(fileName: string, buf: Buffer): Promise<string
   return buf.toString("utf8");
 }
 
-const TITLE_WORDS =
+export const TITLE_WORDS =
   /\b((?:senior|junior|lead|staff|principal|head of|chief|associate|intern)?\s*(?:software|frontend|front-end|front end|backend|back-end|back end|full[- ]?stack|data|machine learning|ml|ai|devops|cloud|platform|mobile|ios|android|qa|security|site reliability|product|ux|ui|embedded|systems?)\s+(?:engineer|developer|scientist|analyst|architect|designer|manager|lead|specialist|consultant))\b/gi;
 
 const LOCATION_HINTS = [
@@ -85,6 +85,7 @@ export function buildProfile(fileName: string, rawText: string): Profile {
     yearsExperience,
     rawText: text.slice(0, 20000),
     fileName,
+    storedFile: null,
     updatedAt: new Date().toISOString(),
   };
 }

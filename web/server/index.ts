@@ -1,16 +1,25 @@
 import { serve } from "@hono/node-server";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { extname, join } from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
+import { discoverFunding, enrichStartup, LOCATION_TERMS, scoreStartup, startupFromHit } from "./funding.js";
 import { buildGraph } from "./graph.js";
+import { checkReplies, composeOutreach, newOutreach, sendOutreach, verifyMail } from "./mail.js";
 import { scoreLead } from "./match.js";
 import { buildProfile, extractText } from "./resume.js";
 import { searchLinkedIn, searchRemoteOk, searchV2ex, type RawLead } from "./sources.js";
-import { db, emptyOverlay, persist } from "./store.js";
-import type { GraphLink, GraphNode, Lead, LeadStatus, ScanRequest, Source } from "./types.js";
+import { DATA_DIR, db, emptyOverlay, persist } from "./store.js";
+import type { GraphLink, GraphNode, Lead, LeadStatus, MailSettings, ScanRequest, Source, StartupStatus } from "./types.js";
 
 const app = new Hono().basePath("/api");
 app.use("*", cors());
+
+const rescoreAll = () => {
+  for (const lead of db.leads) lead.match = scoreLead(db.profile, lead);
+  for (const s of db.startups) s.match = scoreStartup(db.profile, s, s.description);
+};
 
 // ------------------------------------------------------------------ profile
 
@@ -28,9 +37,12 @@ app.post("/resume", async (c) => {
     return c.json({ error: `Could not read ${file.name}: ${(e as Error).message}` }, 422);
   }
   if (text.trim().length < 40) return c.json({ error: "That file has almost no text. Is it a scanned image?" }, 422);
-  db.profile = buildProfile(file.name, text);
-  // Re-score existing leads against the new resume.
-  for (const lead of db.leads) lead.match = scoreLead(db.profile, lead);
+  // Keep the original so outreach can attach it.
+  mkdirSync(DATA_DIR, { recursive: true });
+  const stored = join(DATA_DIR, `resume${extname(file.name).toLowerCase() || ".txt"}`);
+  writeFileSync(stored, buf);
+  db.profile = { ...buildProfile(file.name, text), storedFile: stored };
+  rescoreAll();
   persist();
   return c.json(db.profile);
 });
@@ -39,9 +51,34 @@ app.put("/profile", async (c) => {
   if (!db.profile) return c.json({ error: "No profile yet" }, 404);
   const patch = (await c.req.json()) as Partial<typeof db.profile>;
   db.profile = { ...db.profile, ...patch, updatedAt: new Date().toISOString() };
-  for (const lead of db.leads) lead.match = scoreLead(db.profile, lead);
+  rescoreAll();
   persist();
   return c.json(db.profile);
+});
+
+// ------------------------------------------------------------------ settings
+
+const maskMail = (m: MailSettings | null) => (m ? { ...m, pass: m.pass ? "••••••••" : "" } : null);
+
+app.get("/settings", (c) => c.json({ ...db.settings, mail: maskMail(db.settings.mail), locationPresets: Object.keys(LOCATION_TERMS) }));
+
+app.put("/settings", async (c) => {
+  const patch = (await c.req.json()) as { locations?: string[]; mail?: MailSettings | null };
+  if (patch.locations) db.settings.locations = patch.locations.slice(0, 12);
+  if (patch.mail !== undefined) {
+    if (patch.mail === null) db.settings.mail = null;
+    else {
+      const keepPass = patch.mail.pass === "••••••••" || !patch.mail.pass ? (db.settings.mail?.pass ?? "") : patch.mail.pass;
+      db.settings.mail = { ...patch.mail, pass: keepPass, smtpPort: Number(patch.mail.smtpPort), imapPort: Number(patch.mail.imapPort) };
+    }
+  }
+  persist();
+  return c.json({ ...db.settings, mail: maskMail(db.settings.mail), locationPresets: Object.keys(LOCATION_TERMS) });
+});
+
+app.post("/settings/mail/test", async (c) => {
+  if (!db.settings.mail) return c.json({ error: "Mail is not configured" }, 400);
+  return c.json(await verifyMail(db.settings.mail));
 });
 
 // ------------------------------------------------------------------ leads
@@ -70,7 +107,7 @@ app.delete("/leads", (c) => {
   return c.body(null, 204);
 });
 
-// ------------------------------------------------------------------ scan (SSE)
+// ------------------------------------------------------------------ job scan (SSE)
 
 type Task = { source: Source; query: string; location: string | null; run: () => Promise<RawLead[]> };
 
@@ -80,7 +117,7 @@ function planTasks(req: ScanRequest): Task[] {
   for (const query of req.queries) {
     if (req.sources.includes("linkedin"))
       for (const loc of locations)
-        tasks.push({ source: "linkedin", query, location: loc, run: () => searchLinkedIn(query, loc, req.limit) });
+        tasks.push({ source: "linkedin", query, location: loc, run: () => searchLinkedIn(query, loc === "Remote" ? null : loc, req.limit) });
     if (req.sources.includes("remoteok"))
       tasks.push({ source: "remoteok", query, location: null, run: () => searchRemoteOk(query, req.limit) });
     if (req.sources.includes("v2ex"))
@@ -93,7 +130,7 @@ app.get("/scan", (c) => {
   const q = c.req.query();
   const req: ScanRequest = {
     queries: (q.queries ?? "").split("|").map((s) => s.trim()).filter(Boolean).slice(0, 6),
-    locations: (q.locations ?? "").split("|").map((s) => s.trim()).filter(Boolean).slice(0, 4),
+    locations: (q.locations ?? "").split("|").map((s) => s.trim()).filter(Boolean).slice(0, 6),
     sources: ((q.sources ?? "linkedin").split(",") as Source[]).filter((s) => ["linkedin", "remoteok", "v2ex"].includes(s)),
     limit: Math.min(25, Math.max(1, Number(q.limit ?? 10))),
   };
@@ -104,9 +141,8 @@ app.get("/scan", (c) => {
     let done = 0;
     let added = 0;
     const send = (event: string, data: unknown) => stream.writeSSE({ event, data: JSON.stringify(data) });
-    await send("start", { total: tasks.length, tasks: tasks.map(({ source, query, location }) => ({ source, query, location })) });
+    await send("start", { total: tasks.length });
 
-    const CONCURRENCY = 3;
     const queue = [...tasks];
     const worker = async () => {
       while (queue.length) {
@@ -138,10 +174,181 @@ app.get("/scan", (c) => {
         await send("progress", { done, total: tasks.length, added });
       }
     };
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(3, tasks.length) }, worker));
     await send("done", { added, total: db.leads.length });
   });
 });
+
+// ------------------------------------------------------------------ funded startups
+
+app.get("/startups", (c) => c.json(db.startups));
+
+app.patch("/startups/:id", async (c) => {
+  const s = db.startups.find((x) => x.id === c.req.param("id"));
+  if (!s) return c.json({ error: "not found" }, 404);
+  const patch = (await c.req.json()) as { status?: StartupStatus; notes?: string; emails?: string[]; website?: string | null };
+  if (patch.status) s.status = patch.status;
+  if (patch.website !== undefined) {
+    s.website = patch.website ? (patch.website.startsWith("http") ? patch.website : `https://${patch.website}`).replace(/\/$/, "") : null;
+    s.websiteManual = !!patch.website;
+    s.enriched = false;
+    s.enrichError = null;
+  }
+  if (typeof patch.notes === "string") s.notes = patch.notes;
+  if (patch.emails) s.emails = patch.emails.map((address) => ({ address, source: s.emails.find((e) => e.address === address)?.source ?? "found" }));
+  persist();
+  return c.json(s);
+});
+
+app.post("/startups/:id/enrich", async (c) => {
+  const s = db.startups.find((x) => x.id === c.req.param("id"));
+  if (!s) return c.json({ error: "not found" }, 404);
+  s.enriched = false;
+  if (!s.websiteManual) s.website = null; // look the site up again
+  await enrichStartup(s, db.profile);
+  persist();
+  return c.json(s);
+});
+
+app.delete("/startups/:id", (c) => {
+  db.startups = db.startups.filter((x) => x.id !== c.req.param("id"));
+  persist();
+  return c.body(null, 204);
+});
+
+/**
+ * Streams: news (headlines found) → startup (each company as it is enriched) → done.
+ * Query: locations=Hyderabad|Remote  days=30  limit=12  (limit = companies enriched per location)
+ */
+app.get("/startups/scan", (c) => {
+  const q = c.req.query();
+  const locations = (q.locations ?? "").split("|").map((s) => s.trim()).filter(Boolean).slice(0, 6);
+  const days = Math.min(90, Math.max(7, Number(q.days ?? 30)));
+  const limit = Math.min(30, Math.max(1, Number(q.limit ?? 12)));
+  const locs: (string | null)[] = locations.length ? locations : [null];
+
+  return streamSSE(c, async (stream) => {
+    const send = (event: string, data: unknown) => stream.writeSSE({ event, data: JSON.stringify(data) });
+    let added = 0;
+    let enriched = 0;
+    const toEnrich: ReturnType<typeof startupFromHit>[] = [];
+    await send("start", { locations: locs.map((l) => l ?? "Anywhere"), days });
+
+    for (const loc of locs) {
+      const label = loc ?? "Anywhere";
+      await send("task", { label, state: "running" });
+      try {
+        const hits = await discoverFunding(loc, days);
+        let fresh = 0;
+        for (const hit of hits) {
+          const s = startupFromHit(hit, loc, db.profile);
+          const existing = db.startups.find((x) => x.id === s.id);
+          if (existing) {
+            // Retry companies whose site lookup failed last time.
+            if (!existing.enriched || existing.enrichError) toEnrich.push(existing);
+            continue;
+          }
+          db.startups.unshift(s);
+          added++;
+          fresh++;
+          if (toEnrich.filter((x) => x.location === s.location).length < limit) toEnrich.push(s);
+          await send("startup", { startup: s, isNew: true });
+        }
+        persist();
+        await send("task", { label, state: "done", count: hits.length, fresh });
+      } catch (e) {
+        await send("task", { label, state: "error", error: (e as Error).message });
+      }
+    }
+
+    // Enrich: website, careers, emails, score. Two at a time to stay polite.
+    await send("phase", { phase: "enrich", total: toEnrich.length });
+    const queue = [...toEnrich];
+    const worker = async () => {
+      while (queue.length) {
+        const s = queue.shift()!;
+        await enrichStartup(s, db.profile);
+        enriched++;
+        persist();
+        await send("startup", { startup: s, isNew: false });
+        await send("progress", { done: enriched, total: toEnrich.length, added });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(2, queue.length) }, worker));
+    await send("done", { added, enriched, total: db.startups.length });
+  });
+});
+
+// ------------------------------------------------------------------ outreach
+
+app.get("/outreach", (c) => c.json(db.outreach));
+
+app.post("/outreach/draft", async (c) => {
+  if (!db.profile) return c.json({ error: "Upload a resume first" }, 400);
+  const { startupId, to } = (await c.req.json()) as { startupId: string; to?: string };
+  const s = db.startups.find((x) => x.id === startupId);
+  if (!s) return c.json({ error: "startup not found" }, 404);
+  const address = to ?? s.emails[0]?.address;
+  if (!address) return c.json({ error: "No email address for this startup. Add one first." }, 400);
+  const o = newOutreach(s, address, composeOutreach(db.profile, s, db.settings.mail));
+  db.outreach.unshift(o);
+  persist();
+  return c.json(o);
+});
+
+app.patch("/outreach/:id", async (c) => {
+  const o = db.outreach.find((x) => x.id === c.req.param("id"));
+  if (!o) return c.json({ error: "not found" }, 404);
+  const patch = (await c.req.json()) as Partial<{ to: string; subject: string; body: string; attachResume: boolean }>;
+  Object.assign(o, patch, { updatedAt: new Date().toISOString() });
+  persist();
+  return c.json(o);
+});
+
+app.post("/outreach/:id/send", async (c) => {
+  const o = db.outreach.find((x) => x.id === c.req.param("id"));
+  if (!o) return c.json({ error: "not found" }, 404);
+  if (!db.settings.mail) return c.json({ error: "Connect your mailbox in Settings before sending." }, 400);
+  if (o.status === "sent" || o.status === "replied") return c.json({ error: "Already sent" }, 400);
+  const sent = await sendOutreach(db.settings.mail, o, db.profile);
+  const s = db.startups.find((x) => x.id === sent.startupId);
+  if (s && sent.status === "sent" && s.status !== "replied") s.status = "contacted";
+  persist();
+  return c.json(sent, sent.status === "failed" ? 502 : 200);
+});
+
+app.delete("/outreach/:id", (c) => {
+  db.outreach = db.outreach.filter((x) => x.id !== c.req.param("id"));
+  persist();
+  return c.body(null, 204);
+});
+
+async function pollReplies() {
+  if (!db.settings.mail) return { checked: 0, updated: [] as string[] };
+  const res = await checkReplies(db.settings.mail, db.outreach);
+  for (const id of res.updated) {
+    const o = db.outreach.find((x) => x.id === id);
+    const s = o && db.startups.find((x) => x.id === o.startupId);
+    if (s && o?.status === "replied") s.status = "replied";
+  }
+  db.settings.lastReplyCheck = new Date().toISOString();
+  persist();
+  return res;
+}
+
+app.post("/outreach/check", async (c) => {
+  if (!db.settings.mail) return c.json({ error: "Mail is not configured" }, 400);
+  try {
+    return c.json(await pollReplies());
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502);
+  }
+});
+
+// Background reply polling every 5 minutes while the server runs.
+setInterval(() => {
+  if (db.settings.mail && db.outreach.some((o) => o.status === "sent")) pollReplies().catch((e) => console.error("reply check failed:", (e as Error).message));
+}, 5 * 60_000);
 
 // ------------------------------------------------------------------ graph
 
@@ -203,7 +410,9 @@ app.post("/graph/edit", async (c) => {
 
 // ------------------------------------------------------------------ health
 
-app.get("/health", (c) => c.json({ ok: true, leads: db.leads.length, profile: !!db.profile }));
+app.get("/health", (c) =>
+  c.json({ ok: true, leads: db.leads.length, startups: db.startups.length, outreach: db.outreach.length, profile: !!db.profile, mail: !!db.settings.mail }),
+);
 
 const port = Number(process.env.PORT ?? 8787);
 serve({ fetch: app.fetch, port }, () => console.log(`jobly api  →  http://localhost:${port}/api`));

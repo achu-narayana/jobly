@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
+import { LocationPicker } from "../components/LocationPicker";
 import { Button, Chip, cx, Empty, Ring } from "../components/ui";
 import { SOURCES, STATUSES, type Lead, type LeadStatus, type Source } from "../lib/types";
 import { useStore } from "../store";
@@ -8,6 +9,7 @@ const SOURCE_TONE: Record<Source, "sky" | "accent" | "violet"> = { linkedin: "sk
 
 export function LeadsView() {
   const profile = useStore((s) => s.profile);
+  const settings = useStore((s) => s.settings);
   const leads = useStore((s) => s.leads);
   const scanning = useStore((s) => s.scanning);
   const tasks = useStore((s) => s.scanTasks);
@@ -21,18 +23,14 @@ export function LeadsView() {
   const clearLeads = useStore((s) => s.clearLeads);
 
   const [queries, setQueries] = useState<string[]>([]);
-  const [locations, setLocations] = useState<string[]>([]);
+  const locations = settings?.locations ?? [];
   const [sources, setSources] = useState<Source[]>(["linkedin", "remoteok"]);
   const [limit, setLimit] = useState(10);
   const [qDraft, setQDraft] = useState("");
-  const [lDraft, setLDraft] = useState("");
 
-  // Seed the search from the profile the first time it arrives.
+  // Seed the search titles from the profile the first time it arrives.
   useEffect(() => {
-    if (profile && !queries.length) {
-      setQueries(profile.titles.slice(0, 3));
-      setLocations(profile.locations.filter((l) => !/united kingdom|united states|india|germany|canada/i.test(l)).slice(0, 2));
-    }
+    if (profile && !queries.length) setQueries(profile.titles.slice(0, 3));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile]);
 
@@ -61,9 +59,12 @@ export function LeadsView() {
     <div className="mx-auto max-w-7xl px-4 py-8">
       {/* Scan controls */}
       <div className="glass rounded-3xl p-5">
-        <div className="grid gap-5 lg:grid-cols-[1fr_1fr_auto]">
+        <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr_auto]">
           <ChipInput label="Search titles" items={queries} draft={qDraft} setDraft={setQDraft} onChange={setQueries} placeholder={profile ? "add a title" : "upload a resume to prefill"} />
-          <ChipInput label="Locations (blank = anywhere)" items={locations} draft={lDraft} setDraft={setLDraft} onChange={setLocations} placeholder="add a city" />
+          <div>
+            <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-fg-3">Where (none = anywhere)</p>
+            <LocationPicker />
+          </div>
           <div className="flex flex-col justify-between gap-3">
             <div>
               <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-fg-3">Sources</p>
