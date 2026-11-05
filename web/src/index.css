@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-bg: #07080c;
+  --color-bg-2: #0d0f16;
+  --color-bg-3: #141722;
+  --color-line: #1f2330;
+  --color-line-2: #2b3042;
+  --color-fg: #eef0f6;
+  --color-fg-2: #a3a9bd;
+  --color-fg-3: #6b7187;
+
+  --color-accent: #5ef2c0;
+  --color-accent-2: #2ad1a0;
+  --color-violet: #9b8cff;
+  --color-amber: #ffb547;
+  --color-rose: #ff6a7d;
+  --color-sky: #5ec8ff;
+
+  --animate-spin-slow: spin 14s linear infinite;
+  --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.2s linear infinite;
+
+  @keyframes pulse-soft {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+::selection { background: color-mix(in oklab, var(--color-accent) 35%, transparent); }
+
+/* Subtle grid + vignette behind every screen. */
+.bg-grid {
+  background-image:
+    radial-gradient(ellipse at 50% 0%, color-mix(in oklab, var(--color-accent) 9%, transparent), transparent 60%),
+    linear-gradient(to right, color-mix(in oklab, var(--color-line) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--color-line) 70%, transparent) 1px, transparent 1px);
+  background-size: 100% 100%, 48px 48px, 48px 48px;
+  mask-image: radial-gradient(ellipse at 50% 30%, black 40%, transparent 85%);
+}
+
+/* Glass card */
+.glass {
+  background: color-mix(in oklab, var(--color-bg-2) 82%, transparent);
+  border: 1px solid var(--color-line);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 1px 0 0 color-mix(in oklab, white 4%, transparent) inset, 0 20px 60px -30px rgb(0 0 0 / 0.8);
+}
+.glass-hover { transition: border-color .25s, transform .25s, box-shadow .25s; }
+.glass-hover:hover {
+  border-color: color-mix(in oklab, var(--color-accent) 40%, var(--color-line));
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-accent) 20%, transparent), 0 30px 60px -30px color-mix(in oklab, var(--color-accent) 25%, black);
+}
+
+/* Shimmer skeleton line */
+.shimmer {
+  background: linear-gradient(90deg, var(--color-bg-3) 0%, var(--color-line-2) 50%, var(--color-bg-3) 100%);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* Scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--color-line-2) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--color-line-2); border-radius: 8px; }
+
+/* Keyboard focus */
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 6px; }
+
+/* 3D force-graph tooltip */
+.scene-tooltip {
+  font-family: var(--font-sans) !important;
+  font-size: 12px !important;
+  background: var(--color-bg-2) !important;
+  color: var(--color-fg) !important;
+  border: 1px solid var(--color-line-2);
+  border-radius: 8px;
+  padding: 6px 10px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
