@@ -3,8 +3,8 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
 
-const ACCENT = new THREE.Color("#5ef2c0");
-const VIOLET = new THREE.Color("#9b8cff");
+const ACCENT = new THREE.Color("#ffffff");
+const VIOLET = new THREE.Color("#8a8a8a");
 
 /**
  * A slowly turning constellation: points on a shell, linked to near neighbours.
@@ -95,7 +95,7 @@ function Core() {
       </mesh>
       <mesh ref={inner}>
         <icosahedronGeometry args={[0.55, 2]} />
-        <meshStandardMaterial color="#0b1512" emissive={ACCENT} emissiveIntensity={0.22} roughness={0.25} metalness={0.6} flatShading />
+        <meshStandardMaterial color="#111111" emissive="#ffffff" emissiveIntensity={0.08} roughness={0.3} metalness={0.7} flatShading />
       </mesh>
       <pointLight position={[2, 2, 2]} color="#ffffff" intensity={30} distance={8} decay={2} />
       <pointLight position={[-2, -1, 1]} color={VIOLET} intensity={10} distance={6} decay={2} />
@@ -110,7 +110,7 @@ export function Hero3D({ className }: { className?: string }) {
         <ambientLight intensity={0.4} />
         <Core />
         <Constellation />
-        <Sparkles count={70} scale={7} size={2.2} speed={0.25} color="#5ef2c0" opacity={0.5} />
+        <Sparkles count={70} scale={7} size={2.2} speed={0.25} color="#ffffff" opacity={0.4} />
       </Canvas>
     </div>
   );

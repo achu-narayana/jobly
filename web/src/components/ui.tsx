@@ -7,7 +7,7 @@ export function cx(...parts: (string | false | null | undefined)[]) {
 
 type Variant = "primary" | "ghost" | "outline" | "danger";
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-accent text-bg font-semibold hover:bg-accent-2 shadow-[0_0_24px_-6px_var(--color-accent)]",
+  primary: "bg-fg text-bg font-semibold hover:bg-accent-2",
   ghost: "text-fg-2 hover:text-fg hover:bg-bg-3",
   outline: "border border-line-2 text-fg hover:border-accent/60 hover:bg-bg-3",
   danger: "text-rose hover:bg-rose/10",
@@ -85,7 +85,7 @@ export function Chip({
 export function Ring({ value, size = 56, stroke = 5, label }: { value: number; size?: number; stroke?: number; label?: string }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const color = value >= 70 ? "var(--color-accent)" : value >= 45 ? "var(--color-amber)" : "var(--color-rose)";
+  const color = value >= 70 ? "#ffffff" : value >= 45 ? "#9a9a9a" : "#555555";
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
@@ -102,7 +102,7 @@ export function Ring({ value, size = 56, stroke = 5, label }: { value: number; s
           initial={{ strokeDashoffset: c }}
           animate={{ strokeDashoffset: c - (c * value) / 100 }}
           transition={{ duration: 1.1, ease: [0.22, 1, 0.36, 1] }}
-          style={{ filter: `drop-shadow(0 0 6px ${color})` }}
+          style={{ filter: value >= 70 ? `drop-shadow(0 0 5px rgba(255,255,255,0.6))` : undefined }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">

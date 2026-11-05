@@ -12,12 +12,12 @@ type L = LinkObject<GraphNode, GraphLink>;
 
 const KIND_COLOR: Record<NodeKind, string> = {
   you: "#ffffff",
-  skill: "#5ef2c0",
-  job: "#5ec8ff",
-  company: "#9b8cff",
-  location: "#ffb547",
-  source: "#6b7187",
-  custom: "#ff6a7d",
+  skill: "#e6e6e6",
+  job: "#b3b3b3",
+  company: "#8a8a8a",
+  location: "#666666",
+  source: "#4a4a4a",
+  custom: "#ffffff",
 };
 const KIND_LABEL: Record<NodeKind, string> = { you: "You", skill: "Skill", job: "Job", company: "Company", location: "Place", source: "Source", custom: "Custom" };
 const KINDS = Object.keys(KIND_COLOR) as NodeKind[];
@@ -199,14 +199,14 @@ export function GraphView() {
           nodeLabel={(n) => `${KIND_LABEL[n.kind]} · ${n.label}`}
           linkColor={(l) => {
             const on = !selected || (neighbours.has(endId(l.source)) && neighbours.has(endId(l.target)));
-            return on ? (l.kind === "wants" ? "rgba(255,181,71,0.45)" : "rgba(94,242,192,0.28)") : "rgba(94,242,192,0.05)";
+            return on ? (l.kind === "wants" ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.28)") : "rgba(255,255,255,0.04)";
           }}
           linkWidth={(l) => 0.4 + (l.weight ?? 0.3) * 1.2}
           linkOpacity={0.9}
           linkDirectionalParticles={(l) => (l.kind === "needs" || l.kind === "has" ? 1 : 0)}
           linkDirectionalParticleSpeed={0.006}
           linkDirectionalParticleWidth={1.2}
-          linkDirectionalParticleColor={() => "#5ef2c0"}
+          linkDirectionalParticleColor={() => "#ffffff"}
           onNodeClick={(n) => {
             setSelected(n.id);
             flyTo(n);

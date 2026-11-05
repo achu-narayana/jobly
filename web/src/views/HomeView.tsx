@@ -43,7 +43,7 @@ export function HomeView() {
           >
             Your resume,
             <br />
-            <span className="bg-gradient-to-r from-accent via-sky to-violet bg-clip-text text-transparent">mapped to real jobs.</span>
+            <span className="text-fg-3">mapped to real jobs.</span>
           </motion.h1>
           <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="mt-6 max-w-lg text-lg text-fg-2">
             Upload once. Jobly scrapes live postings, scores each one against what you actually know, and draws the whole thing as a graph you can edit.
